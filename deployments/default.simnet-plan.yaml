@@ -50,8 +50,8 @@ plan:
     - id: 0
       transactions:
         - emulated-contract-publish:
-            contract-name: communication-management
+            contract-name: service-provider-verification
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: contracts/communication-management.clar
+            path: contracts/service-provider-verification.clar
             clarity-version: 2
       epoch: "2.5"
