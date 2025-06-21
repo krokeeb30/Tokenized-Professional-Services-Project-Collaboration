@@ -1,96 +1,109 @@
-;; Automation Provider Verification Contract
-;; Validates and manages industrial automation providers
+;; Service Provider Verification Contract
+;; Manages verification and registration of professional service providers
 
 (define-constant CONTRACT_OWNER tx-sender)
 (define-constant ERR_UNAUTHORIZED (err u100))
-(define-constant ERR_PROVIDER_NOT_FOUND (err u101))
-(define-constant ERR_PROVIDER_ALREADY_EXISTS (err u102))
-(define-constant ERR_INVALID_CERTIFICATION (err u103))
+(define-constant ERR_ALREADY_VERIFIED (err u101))
+(define-constant ERR_NOT_FOUND (err u102))
+(define-constant ERR_INVALID_RATING (err u103))
 
-;; Provider data structure
-(define-map providers
-  { provider-id: uint }
+;; Data structures
+(define-map service-providers
+  { provider: principal }
   {
-    address: principal,
-    name: (string-ascii 50),
-    certification-level: uint,
     verified: bool,
-    registration-block: uint,
-    reputation-score: uint
+    specialization: (string-ascii 50),
+    rating: uint,
+    total-projects: uint,
+    registration-block: uint
   }
 )
 
-(define-data-var next-provider-id uint u1)
+(define-map verification-requests
+  { provider: principal }
+  {
+    requested-at: uint,
+    documents-hash: (string-ascii 64),
+    status: (string-ascii 20)
+  }
+)
 
-;; Register a new automation provider
-(define-public (register-provider (name (string-ascii 50)) (certification-level uint))
-  (let ((provider-id (var-get next-provider-id)))
-    (asserts! (is-none (map-get? providers { provider-id: provider-id })) ERR_PROVIDER_ALREADY_EXISTS)
-    (asserts! (and (>= certification-level u1) (<= certification-level u5)) ERR_INVALID_CERTIFICATION)
-
-    (map-set providers
-      { provider-id: provider-id }
+;; Public functions
+(define-public (register-provider (specialization (string-ascii 50)))
+  (let ((provider tx-sender))
+    (asserts! (is-none (map-get? service-providers { provider: provider })) ERR_ALREADY_VERIFIED)
+    (map-set service-providers
+      { provider: provider }
       {
-        address: tx-sender,
-        name: name,
-        certification-level: certification-level,
         verified: false,
-        registration-block: block-height,
-        reputation-score: u50
+        specialization: specialization,
+        rating: u0,
+        total-projects: u0,
+        registration-block: block-height
       }
     )
-
-    (var-set next-provider-id (+ provider-id u1))
-    (ok provider-id)
+    (ok true)
   )
 )
 
-;; Verify a provider (only contract owner)
-(define-public (verify-provider (provider-id uint))
+(define-public (request-verification (documents-hash (string-ascii 64)))
+  (let ((provider tx-sender))
+    (asserts! (is-some (map-get? service-providers { provider: provider })) ERR_NOT_FOUND)
+    (map-set verification-requests
+      { provider: provider }
+      {
+        requested-at: block-height,
+        documents-hash: documents-hash,
+        status: "pending"
+      }
+    )
+    (ok true)
+  )
+)
+
+(define-public (verify-provider (provider principal))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
-    (match (map-get? providers { provider-id: provider-id })
-      provider-data
-      (begin
-        (map-set providers
-          { provider-id: provider-id }
-          (merge provider-data { verified: true })
-        )
-        (ok true)
-      )
-      ERR_PROVIDER_NOT_FOUND
+    (asserts! (is-some (map-get? service-providers { provider: provider })) ERR_NOT_FOUND)
+    (map-set service-providers
+      { provider: provider }
+      (merge (unwrap-panic (map-get? service-providers { provider: provider }))
+             { verified: true })
     )
+    (map-set verification-requests
+      { provider: provider }
+      (merge (unwrap-panic (map-get? verification-requests { provider: provider }))
+             { status: "approved" })
+    )
+    (ok true)
   )
 )
 
-;; Update reputation score
-(define-public (update-reputation (provider-id uint) (new-score uint))
+(define-public (update-provider-rating (provider principal) (new-rating uint))
   (begin
-    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
-    (asserts! (<= new-score u100) (err u104))
-    (match (map-get? providers { provider-id: provider-id })
-      provider-data
-      (begin
-        (map-set providers
-          { provider-id: provider-id }
-          (merge provider-data { reputation-score: new-score })
-        )
-        (ok true)
-      )
-      ERR_PROVIDER_NOT_FOUND
+    (asserts! (and (>= new-rating u1) (<= new-rating u5)) ERR_INVALID_RATING)
+    (asserts! (is-some (map-get? service-providers { provider: provider })) ERR_NOT_FOUND)
+    (map-set service-providers
+      { provider: provider }
+      (merge (unwrap-panic (map-get? service-providers { provider: provider }))
+             { rating: new-rating })
     )
+    (ok true)
   )
 )
 
-;; Get provider information
-(define-read-only (get-provider (provider-id uint))
-  (map-get? providers { provider-id: provider-id })
+;; Read-only functions
+(define-read-only (get-provider-info (provider principal))
+  (map-get? service-providers { provider: provider })
 )
 
-;; Check if provider is verified
-(define-read-only (is-provider-verified (provider-id uint))
-  (match (map-get? providers { provider-id: provider-id })
+(define-read-only (is-verified-provider (provider principal))
+  (match (map-get? service-providers { provider: provider })
     provider-data (get verified provider-data)
     false
   )
+)
+
+(define-read-only (get-verification-status (provider principal))
+  (map-get? verification-requests { provider: provider })
 )
